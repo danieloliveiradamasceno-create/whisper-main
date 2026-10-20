@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Whisper Local</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #fff; --text: #1d2330; --muted: #667085;
+    --border: #d9dde5; --accent: #3b5bdb; --accent-text: #fff; --error: #c92a2a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161b; --card: #1d2027; --text: #e8eaee; --muted: #98a2b3;
+      --border: #333844; --accent: #6f8cff; --accent-text: #0e1220; --error: #ff8787;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px 16px; background: var(--bg); color: var(--text);
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 760px; margin: 0 auto; }
+  h1 { margin: 0 0 4px; font-size: 1.6rem; }
+  .sub { margin: 0 0 20px; color: var(--muted); font-size: .9rem; }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px; margin-bottom: 16px;
+  }
+  #drop {
+    border: 2px dashed var(--border); border-radius: 10px; padding: 32px 16px;
+    text-align: center; cursor: pointer; color: var(--muted);
+  }
+  #drop.over { border-color: var(--accent); color: var(--accent); }
+  #drop strong { color: var(--text); }
+  .row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 16px; }
+  @media (max-width: 560px) { .row { grid-template-columns: 1fr; } }
+  label { display: block; font-size: .8rem; color: var(--muted); margin-bottom: 4px; }
+  select, input[type=url] {
+    width: 100%; padding: 8px; border-radius: 8px; font: inherit;
+    border: 1px solid var(--border); background: var(--card); color: var(--text);
+  }
+  button {
+    font: inherit; padding: 9px 16px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--card); color: var(--text);
+  }
+  button.primary {
+    width: 100%; margin-top: 16px; background: var(--accent);
+    color: var(--accent-text); border-color: var(--accent); font-weight: 600;
+  }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  #status { margin-top: 12px; color: var(--muted); font-size: .9rem; }
+  #status.error { color: var(--error); }
+  #result[hidden] { display: none; }
+  #text {
+    white-space: pre-wrap; background: var(--bg); border-radius: 8px;
+    padding: 12px; max-height: 360px; overflow: auto; margin: 12px 0;
+  }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .meta { color: var(--muted); font-size: .85rem; }
+  #progress { margin-top: 16px; }
+  .ptop { display: flex; justify-content: space-between; font-size: .9rem; margin-bottom: 6px; }
+  .bar { height: 10px; border-radius: 5px; background: var(--border); overflow: hidden; }
+  #pfill { height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+  #pfill.indet { width: 35%; animation: slide 1.2s ease-in-out infinite alternate; }
+  @keyframes slide { from { margin-left: 0; } to { margin-left: 65%; } }
+  .saved {
+    margin-top: 12px; padding: 12px; border-radius: 8px; border: 1px solid var(--accent);
+    font-size: .9rem; word-break: break-all;
+  }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Whisper Local</h1>
+  <p class="sub">Transcrição de áudio no seu computador. O arquivo não sai da sua máquina. <span id="device"></span></p>
+
+  <section class="card">
+    <div id="drop" tabindex="0" role="button">
+      <div id="dropLabel"><strong>Clique ou arraste</strong> um arquivo de áudio ou vídeo aqui</div>
+    </div>
+    <input id="file" type="file" accept="audio/*,video/*" hidden>
+
+    <div style="margin-top:16px">
+      <label for="url">Ou cole o link de um vídeo (YouTube etc.)</label>
+      <input id="url" type="url" placeholder="https://www.youtube.com/watch?v=...">
+      <label for="browser" style="margin-top:8px">Usar login do navegador (resolve "Sign in to confirm you're not a bot")</label>
+      <select id="browser">
+        <option value="">Não usar</option>
+        <option value="firefox">Firefox</option>
+        <option value="edge">Edge</option>
+        <option value="chrome">Chrome</option>
+        <option value="brave">Brave</option>
+        <option value="opera">Opera</option>
+      </select>
+    </div>
+
+    <div class="row">
+      <div>
+        <label for="model">Modelo</label>
+        <select id="model"></select>
+      </div>
+      <div>
+        <label for="language">Idioma do áudio</label>
+        <select id="language"></select>
+      </div>
+      <div>
+        <label for="task">Tarefa</label>
+        <select id="task">
+          <option value="transcribe">Transcrever</option>
+          <option value="translate">Traduzir para inglês</option>
+        </select>
+      </div>
+    </div>
+
+    <button id="go" class="primary" disabled>Transcrever</button>
+    <div id="progress" hidden>
+      <div class="ptop"><span id="pstage"></span><span id="ppct"></span></div>
+      <div class="bar"><div id="pfill"></div></div>
+      <div class="meta" id="ptime"></div>
+    </div>
+    <div id="status" role="status"></div>
+    <div id="saved" class="saved" hidden></div>
+  </section>
+
+  <section id="result" class="card" hidden>
+    <div class="meta" id="meta"></div>
+    <div id="text"></div>
+    <div class="actions">
+      <button id="copy">Copiar</button>
+      <button id="dlTxt">Baixar .txt</button>
+      <button id="dlSrt">Baixar .srt</button>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let file = null;
+let last = null;
+
+async function init() {
+  try { $("browser").value = localStorage.getItem("browser") || ""; } catch {}
+  try {
+    const info = await (await fetch("/info")).json();
+    $("device").textContent = info.device === "cuda" ? "Usando GPU." : "Usando CPU (modelos menores são mais rápidos).";
+    $("model").innerHTML = info.models.map((m) => `<option value="${m}">${m}</option>`).join("");
+    $("model").value = "small";
+    const langs = Object.entries(info.languages).sort((a, b) => a[1].localeCompare(b[1]));
+    $("language").innerHTML =
+      `<option value="auto">Detectar automaticamente</option>` +
+      langs.map(([code, name]) => `<option value="${code}">${name}</option>`).join("");
+    $("language").value = "pt";
+  } catch {
+    setStatus("Não foi possível falar com o servidor. Ele está rodando?", true);
+  }
+}
+
+function setStatus(msg, isError = false) {
+  $("status").textContent = msg;
+  $("status").classList.toggle("error", isError);
+}
+
+function setFile(f) {
+  file = f;
+  $("dropLabel").innerHTML = f ? `<strong></strong>` : `<strong>Clique ou arraste</strong> um arquivo de áudio ou vídeo aqui`;
+  if (f) $("dropLabel").firstChild.textContent = f.name;
+  if (f) $("url").value = "";
+  updateGo();
+}
+
+function updateGo() {
+  $("go").disabled = !(file || $("url").value.trim());
+}
+
+$("url").addEventListener("input", () => {
+  if ($("url").value.trim()) setFile(null);
+  updateGo();
+});
+
+$("drop").addEventListener("click", () => $("file").click());
+$("drop").addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") $("file").click(); });
+$("file").addEventListener("change", (e) => setFile(e.target.files[0] || null));
+["dragenter", "dragover"].forEach((ev) =>
+  $("drop").addEventListener(ev, (e) => { e.preventDefault(); $("drop").classList.add("over"); }));
+["dragleave", "drop"].forEach((ev) =>
+  $("drop").addEventListener(ev, (e) => { e.preventDefault(); $("drop").classList.remove("over"); }));
+$("drop").addEventListener("drop", (e) => setFile(e.dataTransfer.files[0] || null));
+
+$("go").addEventListener("click", async () => {
+  const body = new FormData();
+  const url = $("url").value.trim();
+  if (file) body.append("audio", file);
+  else {
+    body.append("url", url);
+    body.append("browser", $("browser").value);
+    try { localStorage.setItem("browser", $("browser").value); } catch {}
+  }
+  body.append("model", $("model").value);
+  body.append("language", $("language").value);
+  body.append("task", $("task").value);
+
+  $("go").disabled = true;
+  $("result").hidden = true;
+  $("saved").hidden = true;
+  setStatus("");
+  const started = Date.now();
+  try {
+    showProgress("Enviando arquivo", file ? 0 : null, started);
+    const { job_id } = await send(body, started);
+    const data = await poll(job_id, started);
+    last = { ...data };
+    $("meta").textContent = `Idioma detectado: ${data.language} · ${data.segments.length} trechos`;
+    $("text").textContent = data.text;
+    $("result").hidden = false;
+    $("saved").innerHTML = "";
+    const title = document.createElement("strong");
+    title.textContent = "Transcrição concluída e salva na pasta:";
+    const folder = document.createElement("div");
+    folder.textContent = data.folder;
+    const names = document.createElement("div");
+    names.className = "meta";
+    names.textContent = data.files.join("  ·  ");
+    $("saved").append(title, folder, names);
+    $("saved").hidden = false;
+    showProgress("Concluído", 100, started);
+  } catch (err) {
+    $("progress").hidden = true;
+    setStatus(err.message, true);
+  } finally {
+    updateGo();
+  }
+});
+
+const STAGES = {
+  queued: "Na fila",
+  downloading: "Baixando o áudio do vídeo",
+  loading_model: "Carregando o modelo (na primeira vez ele é baixado)",
+  transcribing: "Transcrevendo",
+  saving: "Salvando na pasta",
+  done: "Concluído",
+};
+
+function fmtTime(ms) {
+  const s = Math.floor(ms / 1000);
+  return `${Math.floor(s / 60)}min ${String(s % 60).padStart(2, "0")}s`;
+}
+
+function showProgress(stage, percent, started) {
+  $("progress").hidden = false;
+  $("pstage").textContent = stage;
+  const known = percent !== null && percent !== undefined;
+  $("pfill").classList.toggle("indet", !known);
+  $("pfill").style.width = known ? `${percent}%` : "";
+  $("ppct").textContent = known ? `${Math.round(percent)}%` : "";
+  $("ptime").textContent = `Tempo decorrido: ${fmtTime(Date.now() - started)}`;
+}
+
+// XMLHttpRequest instead of fetch: it reports upload progress
+function send(body, started) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/transcribe");
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) showProgress("Enviando arquivo", 100 * e.loaded / e.total, started);
+    };
+    xhr.onerror = () => reject(new Error("Não foi possível falar com o servidor. Ele está rodando?"));
+    xhr.onload = () => {
+      let data;
+      try { data = JSON.parse(xhr.responseText); } catch {
+        return reject(new Error(`O servidor respondeu com erro ${xhr.status}. Veja o PowerShell onde o app está rodando.`));
+      }
+      if (xhr.status >= 400) return reject(new Error(data.error || "Erro desconhecido."));
+      resolve(data);
+    };
+    xhr.send(body);
+  });
+}
+
+async function poll(jobId, started) {
+  for (;;) {
+    let res;
+    try { res = await fetch(`/progress/${jobId}`); } catch {
+      throw new Error("Perdi a conexão com o servidor. Ele está rodando?");
+    }
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Erro desconhecido.");
+    if (data.stage === "error") throw new Error(data.error || "Erro desconhecido.");
+    if (data.stage === "done") return data.result;
+    showProgress(STAGES[data.stage] || data.stage, data.percent, started);
+    await new Promise((r) => setTimeout(r, 700));
+  }
+}
+
+function download(name, content) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([content], { type: "text/plain;charset=utf-8" }));
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function ts(sec) {
+  const ms = Math.round(sec * 1000);
+  const p = (n, w = 2) => String(n).padStart(w, "0");
+  return `${p(Math.floor(ms / 3600000))}:${p(Math.floor(ms / 60000) % 60)}:${p(Math.floor(ms / 1000) % 60)},${p(ms % 1000, 3)}`;
+}
+
+$("copy").addEventListener("click", async () => {
+  await navigator.clipboard.writeText(last.text);
+  setStatus("Texto copiado.");
+});
+$("dlTxt").addEventListener("click", () => download(`${last.name}.txt`, last.text));
+$("dlSrt").addEventListener("click", () =>
+  download(`${last.name}.srt`, last.segments.map((s, i) => `${i + 1}\n${ts(s.start)} --> ${ts(s.end)}\n${s.text}\n`).join("\n")));
+
+init();
+</script>
+</body>
+</html>
